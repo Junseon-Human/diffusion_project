@@ -5,6 +5,7 @@ import json
 import streamlit as st
 from streamlit_lottie import st_lottie
 
+
 def load_lottie_file(filepath: str):
     """
     주어진 로컬 Lottie 애니메이션 JSON 파일을 로드합니다.

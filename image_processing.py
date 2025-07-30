@@ -5,6 +5,8 @@ import numpy as np
 from PIL import Image
 from torchvision import transforms
 import streamlit as st
+import mediapipe as mp
+
 
 def segment_anime_image(model, pil_img, device, threshold=0.67):
     """
@@ -118,27 +120,29 @@ def composite_with_background(character_rgba, background_path, character_scale=0
 
 def segment_person_with_mediapipe(segmenter, pil_img, threshold=0.5):
     """
-    MediaPipe를 사용하여 원본 이미지에서 인물을 분리한 RGBA 이미지를 반환합니다.
+    MediaPipe ImageSegmenter를 사용하여 원본 이미지에서 인물을 분리한 RGBA 이미지를 반환합니다.
+    (threshold 인자는 하위 호환성을 위해 남겨두었지만 사용하지 않습니다.)
     """
-    # PIL 이미지를 NumPy 배열로 변환 (RGB)
+    # PIL 이미지를 NumPy 배열로 변환 (RGB) 및 MediaPipe 이미지 객체 생성
     img_np = np.array(pil_img.convert("RGB"))
-    
-    # MediaPipe로 처리
-    results = segmenter.process(img_np)
-    
-    # 마스크 생성 (결과 > threshold 이면 True)
-    mask_condition = results.segmentation_mask > threshold
-    
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_np)
+
+    # 세그멘테이션 실행
+    segmented_masks = segmenter.segment(mp_image)
+
+    # 카테고리 마스크를 가져옴 (0:배경, 1:머리카락, 2:피부, 3:얼굴, 4:옷, 5:기타)
+    # 배경(0)을 제외한 모든 카테고리를 인물 마스크로 사용
+    person_mask = segmented_masks.category_mask.numpy_view() > 0
+
     # 3채널 RGBA 이미지 생성 준비
-    # 원본 이미지와 동일한 크기의 투명 배경 (0, 0, 0, 0) 생성
     rgba_img = np.zeros((img_np.shape[0], img_np.shape[1], 4), dtype=np.uint8)
-    
+
     # 원본 이미지의 RGB 값을 복사
     rgba_img[:, :, :3] = img_np
-    
+
     # 마스크를 기반으로 알파 채널 설정 (인물 부분: 255, 배경: 0)
-    rgba_img[:, :, 3] = np.where(mask_condition, 255, 0)
-    
+    rgba_img[:, :, 3] = np.where(person_mask, 255, 0)
+
     # NumPy 배열을 다시 PIL 이미지로 변환
     return Image.fromarray(rgba_img, "RGBA")
 
@@ -155,15 +159,13 @@ def calculate_composition_geometry(char_size, bg_size, character_scale=0.8):
     target_char_height = int(bg_height * character_scale)
     scale_ratio = target_char_height / char_height
     target_char_width = int(char_width * scale_ratio)
-    
+
     # 배치 위치 계산 (중앙 하단)
     paste_x = (bg_width - target_char_width) // 2
     paste_y = bg_height - target_char_height
-    
-    return {
-        "pos": (paste_x, paste_y),
-        "size": (target_char_width, target_char_height)
-    }
+
+    return {"pos": (paste_x, paste_y), "size": (target_char_width, target_char_height)}
+
 
 def preprocess_control_images(annotators, input_image):
     """ControlNet용 Pose, Canny 맵을 생성합니다."""

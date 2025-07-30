@@ -54,57 +54,47 @@ CONFIG = {
                 "canny_scale": 0.9,
             },
         },
-        "유화": {
-            "checkpoint": "checkpoints/envyStarlightXL01Lightning_galaxyV20.safetensors",
-            "lora": "loras/envyStarlightThickPalette_01v10.safetensors",
-            "trigger": "oil painting, impasto oil painting, thick brushstrokes, rich pigments, palette knife,visible palette knife marks, vibrant yet earthy palette, dramatic chiaroscuro,ultra-high-resolution, masterpiece,highly detailed brush texture",
-            "negative": "malformed, bad anatomy, distorted face, extra limbs, missing fingers,flat colors, digital smooth, cg render, vector art, cartoon,lowres, low detail, blurry, grainy, jpeg artifacts, muted colors",
-            "advanced_settings": {
-                "denoising": 0.6,
-                "steps": 10,
-                "lora_weight": 1.0,
-                "cfg": 6.0,
-                "pose_scale": 0.7,
-                "canny_scale": 1.0,
-            },
-        },
     },
 }
+
 
 def validate_config():
     """설정값의 유효성을 검증합니다."""
     issues = []
-    
+
     # 디렉토리 존재 확인
     if not CONFIG["models_dir"].exists():
         issues.append(f"모델 디렉토리가 존재하지 않습니다: {CONFIG['models_dir']}")
-    
+
     # 필수 파일 확인
     essential_files = [CONFIG["vae_path"]] + list(CONFIG["controlnets"].values())
     for file_path in essential_files:
         full_path = CONFIG["models_dir"] / file_path
         if not full_path.exists():
             issues.append(f"필수 파일이 없습니다: {full_path}")
-    
+
     # 필터 설정 검증
     for filter_name, filter_config in CONFIG["filters"].items():
         required_keys = ["checkpoint", "trigger", "negative", "advanced_settings"]
         for key in required_keys:
             if key not in filter_config:
                 issues.append(f"필터 '{filter_name}'에 '{key}' 설정이 없습니다.")
-        
+
         # 체크포인트 파일 존재 확인
         if "checkpoint" in filter_config:
             checkpoint_path = CONFIG["models_dir"] / filter_config["checkpoint"]
             if not checkpoint_path.exists():
-                issues.append(f"필터 '{filter_name}'의 체크포인트가 없습니다: {checkpoint_path}")
-    
+                issues.append(
+                    f"필터 '{filter_name}'의 체크포인트가 없습니다: {checkpoint_path}"
+                )
+
     if issues:
         logging.warning(f"설정 검증에서 {len(issues)}개의 문제를 발견했습니다:")
         for issue in issues:
             logging.warning(f"  - {issue}")
-    
+
     return len(issues) == 0
+
 
 # 설정 검증 실행 (import 시점에)
 if __name__ != "__main__":

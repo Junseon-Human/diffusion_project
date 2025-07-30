@@ -10,20 +10,27 @@ import logging
 
 try:
     from anime_segmentation_main.train import AnimeSegmentation
+
     ANIME_SEG_AVAILABLE = True
 except ImportError:
     ANIME_SEG_AVAILABLE = False
     logging.warning("anime_segmentation_main을 찾을 수 없습니다.")
 
 import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 from config import CONFIG
+
 
 class ModelLoadError(Exception):
     """모델 로딩 관련 예외"""
+
     pass
+
 
 def dummy_checker(images, **kwargs):
     return images, [False] * len(images)
+
 
 @st.cache_resource(show_spinner=False)
 def load_annotators(annotator_path, device):
@@ -36,6 +43,7 @@ def load_annotators(annotator_path, device):
     except Exception as e:
         raise ModelLoadError(f"어노테이터 로딩 실패: {e}")
 
+
 @st.cache_resource(show_spinner=False)
 def load_pipeline(filter_config):
     """AI 파이프라인을 로드합니다."""
@@ -43,12 +51,14 @@ def load_pipeline(filter_config):
         md = CONFIG["models_dir"]
         ts = torch.float16
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        
+
         # 필수 파일 존재 확인
         checkpoint_path = md / filter_config["checkpoint"]
         if not checkpoint_path.exists():
-            raise ModelLoadError(f"체크포인트 파일을 찾을 수 없습니다: {checkpoint_path}")
-        
+            raise ModelLoadError(
+                f"체크포인트 파일을 찾을 수 없습니다: {checkpoint_path}"
+            )
+
         pipe = StableDiffusionXLControlNetImg2ImgPipeline.from_single_file(
             checkpoint_path,
             controlnet=[
@@ -59,7 +69,7 @@ def load_pipeline(filter_config):
             use_safetensors=True,
             torch_dtype=ts,
         )
-        
+
         # LoRA 로딩 (선택적)
         lora_status = "LoRA 없음"
         if "lora" in filter_config:
@@ -72,24 +82,25 @@ def load_pipeline(filter_config):
                     lora_status = f"⚠️ LoRA 파일을 찾을 수 없음: {lora_path.name}"
             except Exception as e:
                 lora_status = f"⚠️ LoRA 로드 실패: {e}"
-        
+
         pipe.enable_model_cpu_offload(gpu_id=0)
         pipe.safety_checker = dummy_checker
         pipe.enable_vae_tiling()
-        
+
         annotators = load_annotators(CONFIG["annotators_dir"], device)
-        
+
         return pipe, annotators, lora_status, device
-        
+
     except Exception as e:
         raise ModelLoadError(f"파이프라인 로딩 실패: {e}")
+
 
 @st.cache_resource(show_spinner=False)
 def load_anime_segmenter(device):
     """Anime Segmentation 모델을 로드합니다."""
     if not ANIME_SEG_AVAILABLE:
         raise ModelLoadError("anime_segmentation_main 모듈을 사용할 수 없습니다.")
-    
+
     try:
         model = AnimeSegmentation.from_pretrained("skytnt/anime-seg").to(device)
         model.eval()
@@ -97,11 +108,29 @@ def load_anime_segmenter(device):
     except Exception as e:
         raise ModelLoadError(f"Anime segmenter 로딩 실패: {e}")
 
+
 @st.cache_resource(show_spinner=False)
 def load_mediapipe_segmenter():
-    """MediaPipe Segmentation 모델을 로드합니다."""
+    """MediaPipe ImageSegmenter 모델을 로드합니다."""
     try:
-        mp_selfie_segmentation = mp.solutions.selfie_segmentation
-        return mp_selfie_segmentation.SelfieSegmentation(model_selection=0)
+        # 모델 파일 경로 설정
+        model_path = (
+            CONFIG["models_dir"] / "mediapipe" / "selfie_multiclass_256x256.tflite"
+        )
+        if not model_path.exists():
+            raise ModelLoadError(
+                f"MediaPipe 모델 파일을 찾을 수 없습니다: {model_path}"
+            )
+
+        BaseOptions = mp.tasks.BaseOptions
+        ImageSegmenterOptions = mp.tasks.vision.ImageSegmenterOptions
+        VisionRunningMode = mp.tasks.vision.RunningMode
+
+        options = ImageSegmenterOptions(
+            base_options=BaseOptions(model_asset_path=str(model_path)),
+            running_mode=VisionRunningMode.IMAGE,
+            output_category_mask=True,
+        )
+        return vision.ImageSegmenter.create_from_options(options)
     except Exception as e:
-        raise ModelLoadError(f"MediaPipe segmenter 로딩 실패: {e}")
+        raise ModelLoadError(f"MediaPipe ImageSegmenter 로딩 실패: {e}")
